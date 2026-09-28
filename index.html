@@ -1,0 +1,198 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Password Strength Checker (DFA)</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:wght@400;600;800&display=swap">
+<style>
+:root{--bg:#eef2f4;--card:#fff;--ink:#12242e;--mute:#5a6b75;--line:#cfd9de;--accent:#0b6e8a;--ok:#1b8a4b;--bad:#c23b3b;--warn:#c98a10;--hl:#ffe9a8;
+box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px)}
+@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#0f1a20;--card:#172830;--ink:#e6eef1;--mute:#93a6af;--line:#2b414b;--accent:#4cc3e0;--ok:#4fd48a;--bad:#ff7b7b;--warn:#f0b64a;--hl:#4a3f12}}
+:root[data-theme="dark"]{--bg:#0f1a20;--card:#172830;--ink:#e6eef1;--mute:#93a6af;--line:#2b414b;--accent:#4cc3e0;--ok:#4fd48a;--bad:#ff7b7b;--warn:#f0b64a;--hl:#4a3f12}
+*{box-sizing:border-box}
+html{scroll-padding-top:env(safe-area-inset-top,0px)}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:"Bricolage Grotesque",system-ui,-apple-system,"Segoe UI",sans-serif;line-height:1.5}
+main{max-width:860px;margin:0 auto;padding:24px 16px 48px}
+h1{font-size:clamp(1.8rem,5vw,2.6rem);font-weight:800;margin:0 0 4px;letter-spacing:-.02em}
+h2{font-size:1.1rem;margin:0 0 10px}
+.sub{color:var(--mute);margin:0 0 20px;max-width:60ch}
+section{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.row{display:flex;gap:8px}
+input[type=text],input[type=password]{flex:1;min-width:0;font:inherit;font-size:1.2rem;padding:12px 14px;border-radius:8px;border:2px solid var(--line);background:var(--bg);color:var(--ink)}
+input:focus-visible,button:focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+button{font:inherit;border:2px solid var(--line);background:var(--card);color:var(--ink);border-radius:8px;padding:0 14px;cursor:pointer}
+.meter{height:12px;background:var(--line);border-radius:6px;overflow:hidden;margin:14px 0 6px}
+.meter i{display:block;height:100%;width:0;background:var(--bad);transition:width .25s,background .25s}
+.verdict{display:flex;justify-content:space-between;flex-wrap:wrap;gap:6px;font-weight:600}
+.badge{padding:2px 10px;border-radius:99px;font-size:.9rem;color:#fff;background:var(--bad)}
+.badge.acc{background:var(--ok)}
+ul{list-style:none;margin:0;padding:0}
+li.rule{display:grid;grid-template-columns:24px 1fr auto;gap:8px;align-items:center;padding:8px 0;border-top:1px solid var(--line)}
+li.rule:first-child{border-top:0}
+.mark{font-weight:800;color:var(--bad)}
+.pass .mark{color:var(--ok)}
+code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:.85rem;background:var(--bg);padding:1px 6px;border-radius:4px;overflow-wrap:anywhere}
+.warn{color:var(--warn);font-weight:600}
+.scroll{overflow-x:auto}
+svg text{fill:var(--ink);font-family:inherit}
+.node circle{fill:var(--card);stroke:var(--ink);stroke-width:2}
+.node.cur circle{fill:var(--hl);stroke:var(--accent);stroke-width:4}
+.arr{stroke:var(--mute);stroke-width:2;fill:none}
+table{border-collapse:collapse;width:100%;font-size:.9rem}
+th,td{text-align:left;padding:5px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+tr.last td{background:var(--hl)}
+.tracebox{max-height:260px;overflow:auto}
+.flags{display:grid;grid-template-columns:repeat(auto-fit,minmax(190px,1fr));gap:10px;margin-top:12px}
+.flag{border:1px solid var(--line);border-radius:8px;padding:8px;display:flex;flex-direction:column;gap:6px}
+.pair{display:flex;align-items:center;gap:6px;font-size:.85rem}
+.st{padding:3px 10px;border-radius:99px;border:2px solid var(--line);color:var(--mute)}
+.st.on{border-color:var(--accent);background:var(--hl);color:var(--ink);font-weight:600}
+.note{color:var(--mute);font-size:.9rem;margin:10px 0 0}
+</style>
+</head>
+<body>
+<main>
+<h1>SecurePass</h1>
+<p class="sub">Every character you type is fed into a deterministic finite automaton (DFA). It accepts only if the password is long enough and contains an uppercase letter, lowercase letter, digit and special character.</p>
+
+<section>
+  <div class="row">
+    <input id="pw" type="password" autocomplete="off" spellcheck="false" placeholder="Type a password to test" aria-label="Password">
+    <button id="tog" type="button" aria-pressed="false">Show</button>
+  </div>
+  <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar"><i id="fill"></i></div>
+  <div class="verdict"><span id="label">Type something</span><span><span id="acc" class="badge">DFA: rejected</span></span></div>
+</section>
+
+<section>
+  <h2>Rule check (regular expressions)</h2>
+  <ul id="rules"></ul>
+  <p class="note">Each rule is a regular language, so a DFA can recognise it. Combining them by intersection gives one DFA for the whole policy.</p>
+</section>
+
+<section>
+  <h2>Pattern recognition</h2>
+  <ul id="pats"></ul>
+  <p class="note">Repeated runs, keyboard/alphabet sequences and common words are finite sets of strings, so they are regular too. No backreferences are used; the regexes are generated by listing every case.</p>
+</section>
+
+<section>
+  <h2>State transition visualization</h2>
+  <p class="note" style="margin:0 0 8px">Length counter: reads any character, moves right, stays at q8 (8 or more). Highlighted = current state.</p>
+  <div class="scroll"><svg id="chain" viewBox="0 0 740 110" width="740" height="110" role="img" aria-label="Length automaton states q0 to q8"></svg></div>
+  <div class="flags" id="flags"></div>
+  <p class="note" id="stateline"></p>
+  <h2 style="margin-top:16px">Transition trace</h2>
+  <div class="tracebox"><table id="trace"><thead><tr><th>Step</th><th>Read</th><th>Class</th><th>δ(from, class)</th><th>To state</th></tr></thead><tbody></tbody></table></div>
+  <p class="note">The full DFA is the product of the length counter (9 states) and the four class flags (2⁴ = 16), so 144 states. The only accepting state is (q8, U L D S all seen).</p>
+</section>
+</main>
+
+<script>
+const MIN = 8;
+const CLASSES = [
+  {id:'U', name:'Uppercase letter', re:/[A-Z]/, rx:'[A-Z]'},
+  {id:'L', name:'Lowercase letter', re:/[a-z]/, rx:'[a-z]'},
+  {id:'D', name:'Digit', re:/[0-9]/, rx:'[0-9]'},
+  {id:'S', name:'Special character', re:/[^A-Za-z0-9]/, rx:'[^A-Za-z0-9]'}
+];
+const FULL = 15;
+
+// --- DFA: state = {n: length capped at MIN, f: 4-bit mask of seen classes}
+const classOf = c => { const i = CLASSES.findIndex(k => k.re.test(c)); return i; };
+const delta = (s, c) => ({ n: Math.min(s.n + 1, MIN), f: s.f | (1 << classOf(c)) });
+const accepts = s => s.n === MIN && s.f === FULL;
+const stName = s => `(q${s.n}, ${CLASSES.map((k,i)=> s.f&(1<<i)?k.id:'-').join('')})`;
+
+// --- Regular-language pattern detectors, built from finite lists
+const esc = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+const runs = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789!@#$%^&*'.split('').map(c => esc(c).repeat(3));
+const RUN = new RegExp('(?:' + runs.join('|') + ')');
+const seqSrc = ['abcdefghijklmnopqrstuvwxyz','0123456789','qwertyuiop','asdfghjkl','zxcvbnm'];
+const grams = [];
+seqSrc.forEach(s => { for (let i = 0; i + 3 <= s.length; i++) { const g = s.slice(i, i+3); grams.push(g, g.split('').reverse().join('')); } });
+const SEQ = new RegExp('(?:' + grams.join('|') + ')', 'i');
+const COMMON = ['password','passw0rd','qwerty','admin','letmein','welcome','iloveyou','dragon','monkey','login','abc123','111111'];
+const COM = new RegExp('(?:' + COMMON.join('|') + ')', 'i');
+const PATS = [
+  {name:'Three identical characters in a row', re:RUN, pen:15},
+  {name:'Sequence like abc, 123 or qwe', re:SEQ, pen:12},
+  {name:'Common password word', re:COM, pen:30}
+];
+
+const $ = id => document.getElementById(id);
+const pw = $('pw');
+
+function buildChain(cur){
+  let h = '<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="var(--mute)"/></marker></defs>';
+  for(let i=0;i<=MIN;i++){
+    const x = 40 + i*82;
+    if(i<MIN) h += `<line class="arr" x1="${x+22}" y1="55" x2="${x+60}" y2="55" marker-end="url(#ah)"/><text x="${x+41}" y="45" font-size="11" text-anchor="middle">any</text>`;
+    h += `<g class="node ${i===cur?'cur':''}"><circle cx="${x}" cy="55" r="20"/>${i===MIN?`<circle cx="${x}" cy="55" r="15"/>`:''}<text x="${x}" y="59" text-anchor="middle" font-size="12">q${i}</text></g>`;
+  }
+  const x = 40 + MIN*82;
+  h += `<path class="arr" d="M${x-10},36 C${x-20},6 ${x+20},6 ${x+10},36" marker-end="url(#ah)"/><text x="${x}" y="14" font-size="11" text-anchor="middle">any</text>`;
+  h += `<text x="14" y="98" font-size="11">start: q0</text><text x="${x}" y="98" font-size="11" text-anchor="middle">len ≥ 8</text>`;
+  $('chain').innerHTML = h;
+}
+
+function buildFlags(mask){
+  $('flags').innerHTML = CLASSES.map((k,i) => {
+    const on = mask & (1<<i);
+    return `<div class="flag"><b>${k.name}</b><code>${k.rx}</code><div class="pair"><span class="st ${on?'':'on'}">not seen</span>→<span class="st ${on?'on':''}">seen</span></div></div>`;
+  }).join('');
+}
+
+function run(){
+  const text = pw.value, shown = pw.type === 'text';
+  let s = {n:0, f:0};
+  const rows = [];
+  [...text].forEach((c,i) => {
+    const from = s; s = delta(s, c);
+    const k = CLASSES[classOf(c)];
+    rows.push(`<tr><td>${i+1}</td><td><code>${shown ? esc(c) : '•'}</code></td><td>${k.id}</td><td>${stName(from)}</td><td>${stName(s)}</td></tr>`);
+  });
+  const tb = document.querySelector('#trace tbody');
+  tb.innerHTML = rows.length ? rows.join('') : '<tr><td colspan="5">No input yet. The DFA sits in its start state.</td></tr>';
+  if(rows.length) tb.lastElementChild.className = 'last';
+  buildChain(s.n); buildFlags(s.f);
+  $('stateline').textContent = 'Current state: ' + stName(s) + (accepts(s) ? ' (accepting)' : ' (not accepting)');
+
+  // rules
+  const rules = [{name:`At least ${MIN} characters`, ok: s.n === MIN, rx:'.{8,}', hint: `${Math.min(text.length,MIN)}/${MIN}`}]
+    .concat(CLASSES.map((k,i) => ({name:'Contains ' + k.name.toLowerCase(), ok: !!(s.f & (1<<i)), rx:k.rx, hint:''})));
+  $('rules').innerHTML = rules.map(r => `<li class="rule ${r.ok?'pass':''}"><span class="mark">${r.ok?'✓':'✗'}</span><span>${r.name}${r.ok?'':' <span class="warn">(violated)</span>'}</span><span>${r.hint?r.hint+' ':''}<code>${r.rx}</code></span></li>`).join('');
+
+  // patterns
+  let pen = 0;
+  $('pats').innerHTML = PATS.map(p => {
+    const m = text.match(p.re); if(m) pen += p.pen;
+    return `<li class="rule ${m?'':'pass'}"><span class="mark">${m?'✗':'✓'}</span><span>${p.name}${m?` <span class="warn">found: ${shown?esc(m[0]):'hidden'}</span>`:''}</span><span>${m?'-'+p.pen+' pts':'clear'}</span></li>`;
+  }).join('');
+
+  // strength
+  const nCls = [0,1,2,3].filter(i => s.f & (1<<i)).length;
+  let score = nCls*15 + Math.min(text.length,16)*2.5 - pen;
+  if(!text.length) score = 0;
+  if(!accepts(s)) score = Math.min(score, 60);
+  score = Math.max(0, Math.min(100, Math.round(score)));
+  const lv = score<25?['Very weak','var(--bad)']:score<45?['Weak','var(--bad)']:score<65?['Fair','var(--warn)']:score<85?['Strong','var(--ok)']:['Very strong','var(--ok)'];
+  $('fill').style.width = score+'%'; $('fill').style.background = lv[1];
+  $('bar').setAttribute('aria-valuenow', score);
+  $('label').textContent = text.length ? `${lv[0]} (${score}/100)` : 'Type something';
+  const a = $('acc'); a.textContent = accepts(s) ? 'DFA: accepted' : 'DFA: rejected'; a.className = 'badge' + (accepts(s)?' acc':'');
+}
+
+pw.addEventListener('input', run);
+$('tog').addEventListener('click', e => {
+  const show = pw.type === 'password';
+  pw.type = show ? 'text' : 'password';
+  e.target.textContent = show ? 'Hide' : 'Show';
+  e.target.setAttribute('aria-pressed', show);
+  run();
+});
+run();
+</script>
+</body>
+</html>
