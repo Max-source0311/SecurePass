@@ -49,12 +49,32 @@ tr.last td{background:var(--hl)}
 .st{padding:3px 10px;border-radius:99px;border:2px solid var(--line);color:var(--mute)}
 .st.on{border-color:var(--accent);background:var(--hl);color:var(--ink);font-weight:600}
 .note{color:var(--mute);font-size:.9rem;margin:10px 0 0}
+.pcards{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:10px}
+.pcard{position:relative;border:2px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:4px;cursor:pointer;font-size:.9rem}
+.pcard.sel{border-color:var(--accent);background:var(--hl)}
+.pcard input{position:absolute;opacity:0;inset:0;cursor:pointer}
+.pcard:has(input:focus-visible){outline:3px solid var(--accent);outline-offset:2px}
+.rng{color:var(--accent);font-weight:600}
+#save{padding:10px 18px;background:var(--accent);color:#fff;border-color:var(--accent);font-weight:600}
+#save:disabled{opacity:.45;cursor:not-allowed}
+#msg{font-weight:600}
+#msg.ok{color:var(--ok)}
+#msg.bad{color:var(--bad)}
+.lenrow{display:flex;align-items:center;gap:12px;margin-top:14px}
+.lenrow input{flex:1;accent-color:var(--accent)}
+.lenrow b{min-width:7ch;text-align:right}
 </style>
 </head>
 <body>
 <main>
-<h1>SecurePass</h1>
+<h1>Password strength checker</h1>
 <p class="sub">Every character you type is fed into a deterministic finite automaton (DFA). It accepts only if the password is long enough and contains an uppercase letter, lowercase letter, digit and special character.</p>
+
+<section>
+  <h2>Password length policy</h2>
+  <div class="pcards" id="pcards" role="radiogroup" aria-label="Length policy"></div>
+  <div class="lenrow"><label for="len">Required length</label><input id="len" type="range"><b id="lenval"></b></div>
+</section>
 
 <section>
   <div class="row">
@@ -63,6 +83,7 @@ tr.last td{background:var(--hl)}
   </div>
   <div class="meter" role="progressbar" aria-valuemin="0" aria-valuemax="100" id="bar"><i id="fill"></i></div>
   <div class="verdict"><span id="label">Type something</span><span><span id="acc" class="badge">DFA: rejected</span></span></div>
+  <div class="row" style="margin-top:12px;align-items:center;flex-wrap:wrap"><button id="save" type="button" disabled>Save password</button><span id="msg" role="status"></span></div>
 </section>
 
 <section>
@@ -79,18 +100,19 @@ tr.last td{background:var(--hl)}
 
 <section>
   <h2>State transition visualization</h2>
-  <p class="note" style="margin:0 0 8px">Length counter: reads any character, moves right, stays at q8 (8 or more). Highlighted = current state.</p>
+  <p class="note" id="lennote" style="margin:0 0 8px"></p>
   <div class="scroll"><svg id="chain" viewBox="0 0 740 110" width="740" height="110" role="img" aria-label="Length automaton states q0 to q8"></svg></div>
   <div class="flags" id="flags"></div>
   <p class="note" id="stateline"></p>
   <h2 style="margin-top:16px">Transition trace</h2>
   <div class="tracebox"><table id="trace"><thead><tr><th>Step</th><th>Read</th><th>Class</th><th>δ(from, class)</th><th>To state</th></tr></thead><tbody></tbody></table></div>
-  <p class="note">The full DFA is the product of the length counter (9 states) and the four class flags (2⁴ = 16), so 144 states. The only accepting state is (q8, U L D S all seen).</p>
+  <p class="note" id="prodnote"></p>
 </section>
 </main>
 
 <script>
-const MIN = 8;
+let MIN = 16;
+const SP = 58;
 const CLASSES = [
   {id:'U', name:'Uppercase letter', re:/[A-Z]/, rx:'[A-Z]'},
   {id:'L', name:'Lowercase letter', re:/[a-z]/, rx:'[a-z]'},
@@ -127,14 +149,18 @@ const pw = $('pw');
 function buildChain(cur){
   let h = '<defs><marker id="ah" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><path d="M0,0 L8,4 L0,8z" fill="var(--mute)"/></marker></defs>';
   for(let i=0;i<=MIN;i++){
-    const x = 40 + i*82;
-    if(i<MIN) h += `<line class="arr" x1="${x+22}" y1="55" x2="${x+60}" y2="55" marker-end="url(#ah)"/><text x="${x+41}" y="45" font-size="11" text-anchor="middle">any</text>`;
+    const x = 40 + i*SP;
+    if(i<MIN) h += `<line class="arr" x1="${x+21}" y1="55" x2="${x+SP-21}" y2="55" marker-end="url(#ah)"/>`;
     h += `<g class="node ${i===cur?'cur':''}"><circle cx="${x}" cy="55" r="20"/>${i===MIN?`<circle cx="${x}" cy="55" r="15"/>`:''}<text x="${x}" y="59" text-anchor="middle" font-size="12">q${i}</text></g>`;
   }
-  const x = 40 + MIN*82;
+  const x = 40 + MIN*SP;
   h += `<path class="arr" d="M${x-10},36 C${x-20},6 ${x+20},6 ${x+10},36" marker-end="url(#ah)"/><text x="${x}" y="14" font-size="11" text-anchor="middle">any</text>`;
-  h += `<text x="14" y="98" font-size="11">start: q0</text><text x="${x}" y="98" font-size="11" text-anchor="middle">len ≥ 8</text>`;
-  $('chain').innerHTML = h;
+  h += `<text x="14" y="98" font-size="11">start: q0</text><text x="${x}" y="98" font-size="11" text-anchor="middle">len ≥ ${MIN}</text>`;
+  const W = 80 + MIN*SP;
+  const ch = $('chain');
+  ch.setAttribute('viewBox','0 0 '+W+' 110'); ch.setAttribute('width',W);
+  ch.innerHTML = h;
+  const box = ch.parentElement; box.scrollLeft = Math.max(0, 40 + cur*SP - box.clientWidth/2);
 }
 
 function buildFlags(mask){
@@ -144,8 +170,11 @@ function buildFlags(mask){
   }).join('');
 }
 
+function currentState(){ let s={n:0,f:0}; for(const c of pw.value) s=delta(s,c); return s; }
 function run(){
   const text = pw.value, shown = pw.type === 'text';
+  $('lennote').textContent = `Length counter: every arrow reads any character. It moves right and stays at q${MIN} once the password has ${MIN} or more characters. Highlighted = current state.`;
+  $('prodnote').textContent = `The full DFA is the product of the length counter (${MIN+1} states, q0 to q${MIN}) and the four class flags (2⁴ = 16), so ${(MIN+1)*16} states. The only accepting state is (q${MIN}, U L D S all seen).`;
   let s = {n:0, f:0};
   const rows = [];
   [...text].forEach((c,i) => {
@@ -160,7 +189,7 @@ function run(){
   $('stateline').textContent = 'Current state: ' + stName(s) + (accepts(s) ? ' (accepting)' : ' (not accepting)');
 
   // rules
-  const rules = [{name:`At least ${MIN} characters`, ok: s.n === MIN, rx:'.{8,}', hint: `${Math.min(text.length,MIN)}/${MIN}`}]
+  const rules = [{name:`At least ${MIN} characters`, ok: s.n === MIN, rx:`.{${MIN},}`, hint: `${Math.min(text.length,MIN)}/${MIN}`}]
     .concat(CLASSES.map((k,i) => ({name:'Contains ' + k.name.toLowerCase(), ok: !!(s.f & (1<<i)), rx:k.rx, hint:''})));
   $('rules').innerHTML = rules.map(r => `<li class="rule ${r.ok?'pass':''}"><span class="mark">${r.ok?'✓':'✗'}</span><span>${r.name}${r.ok?'':' <span class="warn">(violated)</span>'}</span><span>${r.hint?r.hint+' ':''}<code>${r.rx}</code></span></li>`).join('');
 
@@ -182,9 +211,48 @@ function run(){
   $('bar').setAttribute('aria-valuenow', score);
   $('label').textContent = text.length ? `${lv[0]} (${score}/100)` : 'Type something';
   const a = $('acc'); a.textContent = accepts(s) ? 'DFA: accepted' : 'DFA: rejected'; a.className = 'badge' + (accepts(s)?' acc':'');
+  $('save').disabled = !accepts(s);
 }
 
-pw.addEventListener('input', run);
+const POLICIES = [
+  {id:'base', title:'Minimum Baseline', range:'12–16', min:12, max:16, def:12, desc:'12 characters is a basic functional minimum, but 15 to 16 characters is the modern recommended baseline'},
+  {id:'ideal', title:'Ideal Default', range:'16–20', min:16, max:20, def:16, desc:'16 to 20 characters provides strong security for everyday online accounts.'},
+  {id:'high', title:'High-Value Accounts', range:'20–24+', min:20, max:32, def:24, desc:'20 to 24+ characters (such as for email, banking, or password manager master vaults) offer future-proofing against faster hardware.'}
+];
+let pol = POLICIES[1];
+$('pcards').innerHTML = POLICIES.map(p => `<label class="pcard" data-id="${p.id}"><input type="radio" name="pol" value="${p.id}"><b>${p.title}</b><span class="rng">${p.range} characters</span><span>${p.desc}</span></label>`).join('');
+function syncPolicy(){
+  document.querySelectorAll('.pcard').forEach(l => { const on = l.dataset.id === pol.id; l.classList.toggle('sel', on); l.querySelector('input').checked = on; });
+  $('len').min = pol.min; $('len').max = pol.max; $('len').value = MIN;
+  $('lenval').textContent = MIN + (MIN === pol.max && pol.id === 'high' ? '+' : '') + ' chars';
+}
+$('pcards').addEventListener('change', e => { pol = POLICIES.find(p => p.id === e.target.value); MIN = pol.def; syncPolicy(); run(); });
+$('len').addEventListener('input', e => { MIN = +e.target.value; syncPolicy(); run(); });
+syncPolicy();
+pw.addEventListener('input', () => { $('msg').textContent = ''; run(); });
+
+// --- Save to the Express/MongoDB backend
+function say(text, ok){ const m = $('msg'); m.textContent = text; m.className = ok ? 'ok' : 'bad'; }
+$('save').addEventListener('click', async () => {
+  const btn = $('save'); btn.disabled = true; say('Saving...', true);
+  try {
+    const res = await fetch('/api/passwords', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({password: pw.value, lengthPolicy: MIN})
+    });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 201) {
+      say(`Saved. Server rated it ${data.strengthLabel} (${data.strengthScore}/100).`, true);
+      pw.value = ''; run();            // clear the password after saving
+      $('msg').textContent = `Saved. Server rated it ${data.strengthLabel} (${data.strengthScore}/100).`; $('msg').className = 'ok';
+    } else if (res.status === 409) say('Duplicate: this password has already been used. Choose another.', false);
+    else say((data.error || 'Could not save the password.') + ` (HTTP ${res.status})`, false);
+  } catch (e) {
+    say('Cannot reach the server. Open this page from http://localhost:3000 and make sure npm start is running.', false);
+  }
+  btn.disabled = !accepts(currentState());
+});
 $('tog').addEventListener('click', e => {
   const show = pw.type === 'password';
   pw.type = show ? 'text' : 'password';
