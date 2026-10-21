@@ -5,11 +5,11 @@ const express = require('express');
 const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 
+const { MONGODB_URI, FINGERPRINT_SECRET, PORT = 3000 } = process.env;
+
 const missing = ['MONGODB_URI', 'FINGERPRINT_SECRET'].filter(k => !process.env[k]);
 if (missing.length) {
   console.error('Missing env vars:', missing.join(', '));
-  console.error('Similar names Render provided:',
-    Object.keys(process.env).filter(k => /MONGO|FINGER/i.test(k)).map(k => JSON.stringify(k)).join(', ') || 'none');
   process.exit(1);
 }
 
