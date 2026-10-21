@@ -55,7 +55,7 @@ function strength(pw, dfa) {
 // ---- App ------------------------------------------------------------------
 const app = express();
 app.use(express.json({ limit: '2kb' }));
-app.use(express.static(path.join(__dirname, '..', 'public'))); // put the checker HTML in ./public/index.html
+app.use(express.static(path.join(__dirname, 'public'))); // put the checker HTML in ./public/index.html
 
 app.post('/api/passwords', async (req, res) => {
   const { password, lengthPolicy } = req.body || {};
